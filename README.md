@@ -28,14 +28,27 @@ The reports are intentionally not a dump of Oura app numbers. They answer:
 
 ### 1. Get an Oura personal access token
 
-Go to https://cloud.ouraring.com/personal-access-tokens and create a token.
+1. Open https://cloud.ouraring.com/personal-access-tokens in your browser.
+2. Sign in with the same Oura account your ring is connected to.
+3. Click **Create a new personal access token**.
+4. Give it a name like `openclaw-oura-daily-skill`.
+5. Copy the token string (it starts with `p` and looks like `p...`).
+6. Paste it into `~/.openclaw/oura-daily-skill.env` as `OURA_TOKEN` (see step 3).
+
+> **Note:** This token is private. Do not commit it to Git or share it. Keep it in the `.env` file on your own machine.
 
 ### 2. Install the skill
 
 ```bash
 cd ~/.openclaw/workspace/skills
 npx skills add https://github.com/PitayaK/oura-daily-skill.git
-# or copy this repo into ~/.openclaw/workspace/skills/oura-daily-skill
+```
+
+If `npx skills add` is not available, you can also clone the repository manually:
+
+```bash
+cd ~/.openclaw/workspace/skills
+git clone https://github.com/PitayaK/oura-daily-skill.git
 ```
 
 ### 3. Configure
@@ -43,25 +56,49 @@ npx skills add https://github.com/PitayaK/oura-daily-skill.git
 Create `~/.openclaw/oura-daily-skill.env`:
 
 ```bash
-OURA_TOKEN=your_oura_personal_access_token
+OURA_TOKEN=paste_your_oura_personal_access_token_here
 OURA_TIMEZONE=Asia/Shanghai
 OURA_MORNING_TIME=0900
 OURA_EVENING_TIME=2330
 OURA_REPORT_TONE=friendly
 OURA_LANGUAGE=zh
 
-# Delivery: feishu|lark|email|console
-OURA_DELIVERY=feishu
+# Delivery: console|feishu|lark|email
+# Use console first to test; switch to feishu/lark later if you want push messages.
+OURA_DELIVERY=console
 
 # For Feishu/Lark delivery (optional if your OpenClaw already binds to a channel)
-FEISHU_RECEIVE_ID=your_open_id_or_chat_id
-FEISHU_RECEIVE_ID_TYPE=open_id
+# FEISHU_RECEIVE_ID=your_open_id_or_chat_id
+# FEISHU_RECEIVE_ID_TYPE=open_id
 ```
 
-### 4. Add cron jobs
+Make sure the file is only readable by you:
 
 ```bash
-# Edit crontab
+chmod 600 ~/.openclaw/oura-daily-skill.env
+```
+
+### 4. Test it
+
+```bash
+cd ~/.openclaw/workspace/skills/oura-daily-skill
+./scripts/run.sh morning
+./scripts/run.sh evening
+```
+
+If you see data and a plain-language summary, the setup is working.
+
+### 5. Add cron jobs
+
+Open your crontab:
+
+```bash
+ crontab -e
+```
+
+Add:
+
+```bash
 0 9 * * * cd ~/.openclaw/workspace/skills/oura-daily-skill && ./scripts/run.sh morning
 30 23 * * * cd ~/.openclaw/workspace/skills/oura-daily-skill && ./scripts/run.sh evening
 ```
@@ -69,8 +106,8 @@ FEISHU_RECEIVE_ID_TYPE=open_id
 Or use OpenClaw cron:
 
 ```bash
-openclaw cron add --name oura-morning --schedule "0 9 * * *" --command "..."
-openclaw cron add --name oura-evening --schedule "30 23 * * *" --command "..."
+openclaw cron add --name oura-morning --schedule "0 9 * * *" --command "cd ~/.openclaw/workspace/skills/oura-daily-skill && ./scripts/run.sh morning"
+openclaw cron add --name oura-evening --schedule "30 23 * * *" --command "cd ~/.openclaw/workspace/skills/oura-daily-skill && ./scripts/run.sh evening"
 ```
 
 ## Usage
