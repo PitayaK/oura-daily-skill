@@ -71,6 +71,17 @@ function average(values) {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
+function trendStats(values) {
+  const nums = values.filter(v => typeof v === 'number');
+  if (nums.length === 0) return null;
+  const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const last = nums[nums.length - 1];
+  const first = nums[0];
+  return { avg, min, max, last, first, count: nums.length };
+}
+
 async function main() {
   loadEnv();
   const config = loadConfig();
@@ -90,7 +101,7 @@ async function main() {
   const activityDate = today;
 
   const [sleep, readiness, activity] = await Promise.all([
-    fetchOura('sleep', config.token, sleepDate, today).catch(() => ({ data: [] })),
+    fetchOura('sleep', config.token, weekAgo, today).catch(() => ({ data: [] })),
     fetchOura('daily_readiness', config.token, weekAgo, today).catch(() => ({ data: [] })),
     fetchOura('daily_activity', config.token, weekAgo, today).catch(() => ({ data: [] })),
   ]);
@@ -123,15 +134,18 @@ async function main() {
     activity: activityDoc?.equivalent_walking_distance,
   } : null;
 
-  const readinessTrend = readiness.data
+  const readinessScores = readiness.data
     .filter(d => d.score || d.readiness_score)
     .map(d => d.score || d.readiness_score);
-  const sleepScoreTrend = sleep.data
+  const sleepScores = sleep.data
     .filter(d => d.score || d.sleep_score)
     .map(d => d.score || d.sleep_score);
-  const hrvTrend = sleep.data
+  const hrvValues = sleep.data
     .filter(d => d.average_hrv)
     .map(d => d.average_hrv);
+  const stepsValues = activity.data
+    .filter(d => d.steps)
+    .map(d => d.steps);
 
   const payload = {
     mode,
@@ -141,9 +155,10 @@ async function main() {
     sleep: sleepData,
     day: dayData,
     trends: {
-      avgHrv: average(hrvTrend),
-      avgReadiness: average(readinessTrend),
-      avgSleepScore: average(sleepScoreTrend),
+      readiness: trendStats(readinessScores),
+      sleepScore: trendStats(sleepScores),
+      hrv: trendStats(hrvValues),
+      steps: trendStats(stepsValues),
     },
   };
 

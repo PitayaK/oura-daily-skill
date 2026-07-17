@@ -23,6 +23,14 @@ function fact(label, value) {
   return v !== null ? `${label}${v}` : null;
 }
 
+function describeTrend(stats, unit = '') {
+  if (!stats || stats.count < 2) return null;
+  const { avg, min, max, last, first } = stats;
+  const diff = last - avg;
+  const direction = diff > 0 ? '高' : diff < 0 ? '低' : '持平';
+  return `最近 ${stats.count} 天平均 ${Math.round(avg * 10) / 10}${unit}，范围 ${min}${unit}–${max}${unit}，今天比平均 ${direction} ${Math.round(Math.abs(diff) * 10) / 10}${unit}`;
+}
+
 function buildPrompt(payload) {
   const { mode, config, date, targetDate, sleep, day, trends } = payload;
   const tone = TONE_INSTRUCTIONS[config.tone] || TONE_INSTRUCTIONS.friendly;
@@ -32,6 +40,7 @@ function buildPrompt(payload) {
 Rules:
 - Do NOT list raw numbers unless they help the story.
 - Answer: How did I sleep? / How is my body today? / What should I notice?
+- Include a short 7-day trend comparison when possible.
 - ${tone}
 - Language: ${lang === 'zh' ? 'Chinese' : 'English'}`;
 
@@ -51,14 +60,19 @@ Rules:
       fact('静息心率：', day.restingHr + 'bpm'),
     ].filter(Boolean) : [];
 
+    const trendLines = [
+      describeTrend(trends.readiness),
+      describeTrend(trends.sleepScore),
+      describeTrend(trends.hrv, 'ms'),
+    ].filter(Boolean);
+
     const lines = [
       `今天是 ${date}，目标睡眠日是 ${targetDate}。`,
       sleepParts.length ? sleepParts.join('，') + '。' : '暂无昨晚睡眠数据。',
       dayParts.length ? dayParts.join('，') + '。' : '暂无今日 readiness 数据。',
-      trends.avgSleepScore ? `近7天平均睡眠评分：${Math.round(trends.avgSleepScore)}。` : '',
-      trends.avgReadiness ? `近7天平均 readiness：${Math.round(trends.avgReadiness)}。` : '',
+      ...trendLines,
     ].filter(Boolean);
-    user = lines.join('\n') + '\n\n请生成一段简短的早晨睡眠报告。';
+    user = lines.join('\n') + '\n\n请生成一段简短的早晨睡眠报告，包含趋势对比。';
   } else {
     const dayParts = day ? [
       fact('今日 readiness 评分：', day.readinessScore),
@@ -67,14 +81,19 @@ Rules:
       fact('主动消耗：', day.activeCalories),
     ].filter(Boolean) : [];
 
+    const trendLines = [
+      describeTrend(trends.readiness),
+      describeTrend(trends.steps),
+      describeTrend(trends.hrv, 'ms'),
+    ].filter(Boolean);
+
     const lines = [
       `今天是 ${date}。`,
       dayParts.length ? dayParts.join('，') + '。' : '暂无今日 readiness 或活动数据。',
-      sleep ? fact('昨晚睡眠评分：', sleep.score) + '。' : '',
-      sleep ? fact('总睡眠：', sleep.hours + '小时') + '。' : '',
-      trends.avgReadiness ? `近7天平均 readiness：${Math.round(trends.avgReadiness)}。` : '',
+      sleep ? `昨晚睡眠：${sleep.hours}小时，效率${sleep.efficiency}%。` : '',
+      ...trendLines,
     ].filter(Boolean);
-    user = lines.join('\n') + '\n\n请生成一段简短的晚间身体状态报告。';
+    user = lines.join('\n') + '\n\n请生成一段简短的晚间身体状态报告，包含趋势对比。';
   }
 
   return { system, user };
