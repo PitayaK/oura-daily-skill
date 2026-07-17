@@ -1,0 +1,13 @@
+{
+  "name": "oura-daily-skill",
+  "version": "0.1.0",
+  "description": "Plain-language daily Oura Ring briefs for OpenClaw",
+  "main": "scripts/fetch.js",
+  "scripts": {
+    "morning": "node scripts/fetch.js morning",
+    "evening": "node scripts/fetch.js evening"
+  },
+  "keywords": ["oura", "openclaw", "skill", "health", "sleep"],
+  "author": "PitayaK",
+  "license": "MIT"
+}
