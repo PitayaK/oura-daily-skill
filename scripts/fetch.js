@@ -42,10 +42,6 @@ function fmtDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
-function fmtDateCN(d) {
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-}
-
 async function fetchOura(endpoint, token, startDate, endDate) {
   const url = new URL(`${BASE_URL}/${endpoint}`);
   url.searchParams.set('start_date', startDate);
@@ -59,6 +55,11 @@ async function fetchOura(endpoint, token, startDate, endDate) {
   return await res.json();
 }
 
+function byDay(list, day) {
+  if (!Array.isArray(list)) return null;
+  return list.find(d => d.day === day) || null;
+}
+
 function latest(list) {
   if (!Array.isArray(list) || list.length === 0) return null;
   return list[list.length - 1];
@@ -68,43 +69,6 @@ function average(values) {
   const nums = values.filter(v => typeof v === 'number');
   if (nums.length === 0) return null;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
-function buildSleepSummary(data) {
-  const s = data.sleep;
-  if (!s) return null;
-  const total = s.total_sleep_duration || s.duration || 0;
-  const hours = Math.round((total / 3600) * 10) / 10;
-  const efficiency = s.efficiency || 0;
-  const score = s.score || s.sleep_score || 0;
-  return {
-    date: s.day,
-    score,
-    hours,
-    efficiency,
-    hrv: s.average_hrv,
-    restingHr: s.resting_heart_rate,
-    deep: s.deep_sleep_duration,
-    rem: s.rem_sleep_duration,
-    awake: s.awake_duration,
-  };
-}
-
-function buildDaySummary(data) {
-  const r = data.readiness;
-  const a = data.activity;
-  if (!r && !a) return null;
-  return {
-    date: (r || a).day,
-    readinessScore: r?.score || r?.readiness_score,
-    hrv: r?.average_hrv,
-    restingHr: r?.resting_heart_rate,
-    activityScore: a?.score,
-    steps: a?.steps,
-    calories: a?.total_calories,
-    activeCalories: a?.active_calories,
-    activity: a?.equivalent_walking_distance,
-  };
 }
 
 async function main() {
@@ -121,8 +85,6 @@ async function main() {
   const yesterday = fmtDate(new Date(now.getTime() - 86400000));
   const weekAgo = fmtDate(new Date(now.getTime() - 86400000 * 7));
 
-  // For morning brief: report on yesterday's sleep and today's readiness.
-  // For evening brief: report on today's readiness and activity.
   const sleepDate = mode === 'morning' ? yesterday : today;
   const readinessDate = today;
   const activityDate = today;
@@ -133,31 +95,49 @@ async function main() {
     fetchOura('daily_activity', config.token, weekAgo, today).catch(() => ({ data: [] })),
   ]);
 
-  const sleepDoc = latest(sleep.data);
-  const readinessDoc = latest(readiness.data);
-  const activityDoc = latest(activity.data);
+  const sleepDoc = byDay(sleep.data, sleepDate) || latest(sleep.data);
+  const readinessDoc = byDay(readiness.data, readinessDate) || latest(readiness.data);
+  const activityDoc = byDay(activity.data, activityDate) || latest(activity.data);
 
-  const sleepData = sleepDoc ? buildSleepSummary({ sleep: sleepDoc }) : null;
-  const dayData = buildDaySummary({
-    readiness: readinessDoc,
-    activity: activityDoc,
-  });
+  const sleepData = sleepDoc ? {
+    date: sleepDoc.day,
+    score: sleepDoc.score || sleepDoc.sleep_score || 0,
+    hours: Math.round(((sleepDoc.total_sleep_duration || sleepDoc.duration || 0) / 3600) * 10) / 10,
+    efficiency: sleepDoc.efficiency || 0,
+    hrv: sleepDoc.average_hrv,
+    restingHr: sleepDoc.lowest_heart_rate || sleepDoc.resting_heart_rate,
+    deep: sleepDoc.deep_sleep_duration,
+    rem: sleepDoc.rem_sleep_duration,
+    awake: sleepDoc.awake_time || sleepDoc.awake_duration,
+  } : null;
 
-  const hrvTrend = readiness.data
-    .filter(d => d.average_hrv)
-    .map(d => d.average_hrv);
+  const dayData = (readinessDoc || activityDoc) ? {
+    date: readinessDate,
+    readinessScore: readinessDoc?.score || readinessDoc?.readiness_score,
+    hrv: mode === 'morning' ? sleepData?.hrv : undefined,
+    restingHr: mode === 'morning' ? sleepData?.restingHr : undefined,
+    activityScore: activityDoc?.score,
+    steps: activityDoc?.steps,
+    calories: activityDoc?.total_calories,
+    activeCalories: activityDoc?.active_calories,
+    activity: activityDoc?.equivalent_walking_distance,
+  } : null;
+
   const readinessTrend = readiness.data
     .filter(d => d.score || d.readiness_score)
     .map(d => d.score || d.readiness_score);
   const sleepScoreTrend = sleep.data
     .filter(d => d.score || d.sleep_score)
     .map(d => d.score || d.sleep_score);
+  const hrvTrend = sleep.data
+    .filter(d => d.average_hrv)
+    .map(d => d.average_hrv);
 
   const payload = {
     mode,
     config,
     date: today,
-    targetDate: mode === 'morning' ? yesterday : today,
+    targetDate: sleepDate,
     sleep: sleepData,
     day: dayData,
     trends: {

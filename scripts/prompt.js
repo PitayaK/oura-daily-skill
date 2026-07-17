@@ -12,11 +12,15 @@ const TONE_INSTRUCTIONS = {
   strict: 'Be blunt and direct. If numbers are bad, say so without softening.',
 };
 
-function formatMinutes(minutes) {
-  if (!minutes) return '—';
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${h}小时${m}分钟`;
+function fmt(v) {
+  if (v === undefined || v === null || v === '') return null;
+  if (typeof v === 'number') return Math.round(v * 10) / 10;
+  return v;
+}
+
+function fact(label, value) {
+  const v = fmt(value);
+  return v !== null ? `${label}${v}` : null;
 }
 
 function buildPrompt(payload) {
@@ -33,34 +37,42 @@ Rules:
 
   let user;
   if (mode === 'morning') {
+    const sleepParts = sleep ? [
+      fact('睡眠评分：', sleep.score),
+      fact('总睡眠：', sleep.hours + '小时'),
+      fact('效率：', sleep.efficiency + '%'),
+      fact('HRV：', sleep.hrv + 'ms'),
+      fact('静息心率：', sleep.restingHr + 'bpm'),
+    ].filter(Boolean) : [];
+
+    const dayParts = day ? [
+      fact('今日 readiness 评分：', day.readinessScore),
+      fact('HRV：', day.hrv + 'ms'),
+      fact('静息心率：', day.restingHr + 'bpm'),
+    ].filter(Boolean) : [];
+
     const lines = [
       `今天是 ${date}，目标睡眠日是 ${targetDate}。`,
-      sleep
-        ? `睡眠评分：${sleep.score}，总睡眠：${sleep.hours}小时，效率：${sleep.efficiency}%，HRV：${sleep.hrv}ms，静息心率：${sleep.restingHr}bpm。`
-        : '暂无昨晚睡眠数据。',
-      day
-        ? `今日 readiness 评分：${day.readinessScore}，HRV：${day.hrv}ms，静息心率：${day.restingHr}bpm。`
-        : '暂无今日 readiness 数据。',
-      trends.avgSleepScore
-        ? `近7天平均睡眠评分：${Math.round(trends.avgSleepScore)}。`
-        : '',
-      trends.avgReadiness
-        ? `近7天平均 readiness：${Math.round(trends.avgReadiness)}。`
-        : '',
+      sleepParts.length ? sleepParts.join('，') + '。' : '暂无昨晚睡眠数据。',
+      dayParts.length ? dayParts.join('，') + '。' : '暂无今日 readiness 数据。',
+      trends.avgSleepScore ? `近7天平均睡眠评分：${Math.round(trends.avgSleepScore)}。` : '',
+      trends.avgReadiness ? `近7天平均 readiness：${Math.round(trends.avgReadiness)}。` : '',
     ].filter(Boolean);
     user = lines.join('\n') + '\n\n请生成一段简短的早晨睡眠报告。';
   } else {
+    const dayParts = day ? [
+      fact('今日 readiness 评分：', day.readinessScore),
+      fact('步数：', day.steps),
+      fact('消耗卡路里：', day.calories),
+      fact('主动消耗：', day.activeCalories),
+    ].filter(Boolean) : [];
+
     const lines = [
       `今天是 ${date}。`,
-      day
-        ? `今日 readiness 评分：${day.readinessScore}，HRV：${day.hrv}ms，静息心率：${day.restingHr}bpm，步数：${day.steps}，消耗卡路里：${day.calories}。`
-        : '暂无今日 readiness 或活动数据。',
-      sleep
-        ? `昨晚睡眠评分：${sleep.score}，总睡眠：${sleep.hours}小时。`
-        : '',
-      trends.avgReadiness
-        ? `近7天平均 readiness：${Math.round(trends.avgReadiness)}。`
-        : '',
+      dayParts.length ? dayParts.join('，') + '。' : '暂无今日 readiness 或活动数据。',
+      sleep ? fact('昨晚睡眠评分：', sleep.score) + '。' : '',
+      sleep ? fact('总睡眠：', sleep.hours + '小时') + '。' : '',
+      trends.avgReadiness ? `近7天平均 readiness：${Math.round(trends.avgReadiness)}。` : '',
     ].filter(Boolean);
     user = lines.join('\n') + '\n\n请生成一段简短的晚间身体状态报告。';
   }

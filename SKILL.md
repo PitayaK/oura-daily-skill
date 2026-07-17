@@ -3,24 +3,28 @@ name: oura-daily-skill
 description: |
   Generate plain-language daily health briefs from Oura Ring data.
 
-  Use this skill when the user wants to:
-  - Receive a morning sleep summary from Oura
-  - Receive an evening readiness/activity summary from Oura
-  - Configure or customize Oura daily report timing, tone, or delivery channel
-  - Set up a cron job for automated Oura briefs
+  When invoked (manually or by cron), the agent should:
+  1. Load the environment variables from ~/.openclaw/oura-daily-skill.env.
+  2. Run the appropriate skill script for the requested mode:
+     - scripts/run.sh morning   -> generates a morning sleep brief
+     - scripts/run.sh evening   -> generates an evening readiness/activity brief
+  3. The script returns a system prompt + user prompt containing Oura data and trends.
+  4. Use the local LLM to generate a concise, natural-language summary in the configured language and tone.
+  5. If OURA_DELIVERY is "feishu" or "lark", send the summary to the configured Feishu/Lark user or chat.
+     Otherwise, return the summary to the user.
 
-  The skill fetches Oura API v2 data, compares it to recent trends, and returns
-  a short, human-readable summary. It does not dump raw Oura numbers.
+  The report should answer, not enumerate data:
+  - How did I sleep? / How is my body today?
+  - Is there anything I should pay attention to?
+
+  Avoid dumping raw Oura numbers. Use comparison to recent trends (7-day average) when available.
 examples:
-  - "每天晚上 11 点给我推一条 Oura 身体总结"
-  - "早上 9 点告诉我昨晚睡得怎么样"
-  - "把 Oura 报告 tone 改成严格风格"
-  - "帮我设置 Oura daily skill"
+  - "每天早上 9 点给我发 Oura 睡眠报告"
+  - "晚上 11 点半推送 Oura 身体状态总结"
+  - "用严格风格生成今天的 Oura 晚报"
 commands:
-  - "oura report morning"      # generate morning sleep brief now
-  - "oura report evening"      # generate evening readiness brief now
-  - "oura config"              # show current configuration
-  - "oura cron setup"          # install cron jobs
+  - "cd ~/.agents/skills/oura-daily-skill && set -a; . ~/.openclaw/oura-daily-skill.env; set -a && ./scripts/run.sh morning"
+  - "cd ~/.agents/skills/oura-daily-skill && set -a; . ~/.openclaw/oura-daily-skill.env; set -a && ./scripts/run.sh evening"
 tags:
   - oura
   - health
@@ -34,4 +38,16 @@ source: https://github.com/PitayaK/oura-daily-skill
 
 # Oura Daily Skill
 
-See [README.md](./README.md) for full documentation.
+See [README.md](./README.md) for installation and configuration instructions.
+
+## Runtime behavior
+
+When the agent runs this skill, it should:
+
+1. Load environment from `~/.openclaw/oura-daily-skill.env`.
+2. Run `./scripts/run.sh morning` or `./scripts/run.sh evening`.
+3. The script returns a `system` prompt and a `user` prompt with Oura data.
+4. The agent uses its own LLM to generate the report in the configured tone and language.
+5. The agent delivers the report via Feishu/Lark if configured, or returns it to the user.
+
+The agent should not ask the user for clarification during a scheduled run unless the token is missing or the API fails.
