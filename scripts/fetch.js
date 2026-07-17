@@ -42,6 +42,10 @@ function fmtDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
+function daysAgo(n, from = new Date()) {
+  return fmtDate(new Date(from.getTime() - 86400000 * n));
+}
+
 async function fetchOura(endpoint, token, startDate, endDate) {
   const url = new URL(`${BASE_URL}/${endpoint}`);
   url.searchParams.set('start_date', startDate);
@@ -65,21 +69,26 @@ function latest(list) {
   return list[list.length - 1];
 }
 
-function average(values) {
-  const nums = values.filter(v => typeof v === 'number');
-  if (nums.length === 0) return null;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
-function trendStats(values) {
+function trendStats(values, label = '') {
   const nums = values.filter(v => typeof v === 'number');
   if (nums.length === 0) return null;
   const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
   const min = Math.min(...nums);
   const max = Math.max(...nums);
   const last = nums[nums.length - 1];
-  const first = nums[0];
-  return { avg, min, max, last, first, count: nums.length };
+  return { avg, min, max, last, count: nums.length, label };
+}
+
+function windowStats(list, key, days, minValue = 0) {
+  if (!Array.isArray(list)) return null;
+  const values = list.slice(-days).map(d => d[key]).filter(v => typeof v === 'number' && v > minValue);
+  return trendStats(values, `last${days}d`);
+}
+
+function baselineStats(list, key, minValue = 0) {
+  if (!Array.isArray(list)) return null;
+  const values = list.map(d => d[key]).filter(v => typeof v === 'number' && v > minValue);
+  return trendStats(values, 'baseline21d');
 }
 
 async function main() {
@@ -93,17 +102,17 @@ async function main() {
 
   const now = new Date();
   const today = fmtDate(now);
-  const yesterday = fmtDate(new Date(now.getTime() - 86400000));
-  const weekAgo = fmtDate(new Date(now.getTime() - 86400000 * 7));
+  const yesterday = daysAgo(1, now);
+  const threeWeeksAgo = daysAgo(21, now);
 
   const sleepDate = mode === 'morning' ? yesterday : today;
   const readinessDate = today;
   const activityDate = today;
 
   const [sleep, readiness, activity] = await Promise.all([
-    fetchOura('sleep', config.token, weekAgo, today).catch(() => ({ data: [] })),
-    fetchOura('daily_readiness', config.token, weekAgo, today).catch(() => ({ data: [] })),
-    fetchOura('daily_activity', config.token, weekAgo, today).catch(() => ({ data: [] })),
+    fetchOura('sleep', config.token, threeWeeksAgo, today).catch(() => ({ data: [] })),
+    fetchOura('daily_readiness', config.token, threeWeeksAgo, today).catch(() => ({ data: [] })),
+    fetchOura('daily_activity', config.token, threeWeeksAgo, today).catch(() => ({ data: [] })),
   ]);
 
   const sleepDoc = byDay(sleep.data, sleepDate) || latest(sleep.data);
@@ -117,9 +126,6 @@ async function main() {
     efficiency: sleepDoc.efficiency || 0,
     hrv: sleepDoc.average_hrv,
     restingHr: sleepDoc.lowest_heart_rate || sleepDoc.resting_heart_rate,
-    deep: sleepDoc.deep_sleep_duration,
-    rem: sleepDoc.rem_sleep_duration,
-    awake: sleepDoc.awake_time || sleepDoc.awake_duration,
   } : null;
 
   const dayData = (readinessDoc || activityDoc) ? {
@@ -134,19 +140,6 @@ async function main() {
     activity: activityDoc?.equivalent_walking_distance,
   } : null;
 
-  const readinessScores = readiness.data
-    .filter(d => d.score || d.readiness_score)
-    .map(d => d.score || d.readiness_score);
-  const sleepScores = sleep.data
-    .filter(d => d.score || d.sleep_score)
-    .map(d => d.score || d.sleep_score);
-  const hrvValues = sleep.data
-    .filter(d => d.average_hrv)
-    .map(d => d.average_hrv);
-  const stepsValues = activity.data
-    .filter(d => d.steps)
-    .map(d => d.steps);
-
   const payload = {
     mode,
     config,
@@ -155,12 +148,44 @@ async function main() {
     sleep: sleepData,
     day: dayData,
     trends: {
-      readiness: trendStats(readinessScores),
-      sleepScore: trendStats(sleepScores),
-      hrv: trendStats(hrvValues),
-      steps: trendStats(stepsValues),
+      readiness: {
+        d3: windowStats(readiness.data, 'score', 3) || windowStats(readiness.data, 'readiness_score', 3),
+        d7: windowStats(readiness.data, 'score', 7) || windowStats(readiness.data, 'readiness_score', 7),
+        baseline: baselineStats(readiness.data, 'score') || baselineStats(readiness.data, 'readiness_score'),
+      },
+      sleepScore: {
+        d3: windowStats(sleep.data, 'score', 3) || windowStats(sleep.data, 'sleep_score', 3),
+        d7: windowStats(sleep.data, 'score', 7) || windowStats(sleep.data, 'sleep_score', 7),
+        baseline: baselineStats(sleep.data, 'score') || baselineStats(sleep.data, 'sleep_score'),
+      },
+      sleepHours: {
+        d3: windowStats(sleep.data, 'total_sleep_duration', 3, 3600),
+        d7: windowStats(sleep.data, 'total_sleep_duration', 7, 3600),
+        baseline: baselineStats(sleep.data, 'total_sleep_duration', 3600),
+      },
+      hrv: {
+        d3: windowStats(sleep.data, 'average_hrv', 3),
+        d7: windowStats(sleep.data, 'average_hrv', 7),
+        baseline: baselineStats(sleep.data, 'average_hrv'),
+      },
+      steps: {
+        d3: windowStats(activity.data, 'steps', 3),
+        d7: windowStats(activity.data, 'steps', 7),
+        baseline: baselineStats(activity.data, 'steps'),
+      },
     },
   };
+
+  // Convert sleepHours from seconds to hours
+  ['d3', 'd7', 'baseline'].forEach(k => {
+    const s = payload.trends.sleepHours[k];
+    if (s) {
+      s.avg = Math.round((s.avg / 3600) * 10) / 10;
+      s.min = Math.round((s.min / 3600) * 10) / 10;
+      s.max = Math.round((s.max / 3600) * 10) / 10;
+      s.last = Math.round((s.last / 3600) * 10) / 10;
+    }
+  });
 
   console.log(JSON.stringify(payload, null, 2));
 }
